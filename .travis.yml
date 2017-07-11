@@ -1,0 +1,9 @@
+language: java
+dist: trusty
+script: mvn cobertura:cobertura coveralls:report --quiet
+addons:
+  hostname: short-hostname
+jdk:
+  - oraclejdk8
+notifications:
+  email: false

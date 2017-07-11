@@ -1,0 +1,38 @@
+INSTALL
+Makefile
+Makefile.in
+aclocal.m4
+autom4te.cache
+build
+target
+config.log
+config.status
+configure
+*.pyc
+.*.swp
+*.rrd
+*.class
+*/target/*
+*.orig
+*.log
+
+#for Intellij
+\.idea
+*.iml
+
+#for guava rpm maker
+guava-rpm-maker/\.project
+
+# for mac finder
+.DS_Store
+
+# for eclipse
+.pydevproject
+.metadata
+.project
+.classpath
+.settings
+
+# maven
+bin/
+dependency-reduced-pom.xml
