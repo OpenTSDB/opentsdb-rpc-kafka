@@ -12,12 +12,15 @@
 // see <http://www.gnu.org/licenses/>.
 package net.opentsdb.tsd;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.AtomicDouble;
 import com.google.common.util.concurrent.RateLimiter;
 
 import joptsimple.internal.Strings;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,6 +127,7 @@ public class KafkaRpcPluginThread extends Thread {
   private final AtomicBoolean thread_running = new AtomicBoolean();
   
   private final AtomicLong messagesReceived = new AtomicLong();
+  private final AtomicLong datapointsReceived = new AtomicLong();
   private final AtomicLong deserializationErrors = new AtomicLong();
   private final AtomicDouble cumulativeRateDelay = new AtomicDouble();
   private final AtomicDouble kafkaWaitTime = new AtomicDouble();
@@ -273,52 +277,69 @@ public class KafkaRpcPluginThread extends Thread {
           case RAW:
           case ROLLUP:
             // Deserialize the event from the received (opaque) message.
+            List<TypedIncomingData> eventList = new ArrayList<TypedIncomingData>();
             TypedIncomingData event;
             try {
-              event = JSON.parseToObject(message.message(), 
-                  TypedIncomingData.class);
+              event = JSON.parseToObject(message.message(), TypedIncomingData.class);
+              eventList.add(event);
             } catch (Throwable ex) {
-              LOG.error("Unable to deserialize data " + ex);
-              deserializationErrors.incrementAndGet();
-              continue;
+              // Possible list of TypedIncomingData objects
+              try {
+                eventList = JSON.parseToObject(message.message(), new TypeReference<List<TypedIncomingData>>() {});
+              } catch (Throwable ex1) {
+                LOG.error("Unable to deserialize data ", ex1);
+                deserializationErrors.incrementAndGet();
+                continue;
+              }
             }
             
             // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
             final double waiting = rate_limiter.acquire();
             cumulativeRateDelay.addAndGet(waiting);
-            event.processData(this, recvTime);
+            datapointsReceived.addAndGet(eventList.size());
+            for (TypedIncomingData ev : eventList) {
+              ev.processData(this, recvTime);
+            }
             break;
           case REQUEUE_RAW:
           case REQUEUE_ROLLUP:
           case UID_ABUSE:
+            List<TypedIncomingData> requeuedList = new ArrayList<TypedIncomingData>();
             TypedIncomingData requeued;
             try {
-              requeued = JSON.parseToObject(message.message(), 
-                  TypedIncomingData.class);
+              requeued = JSON.parseToObject(message.message(), TypedIncomingData.class);
+              requeuedList.add(requeued);
             } catch (Throwable ex) {
-              LOG.error("Unable to deserialize data " + ex);
-              deserializationErrors.incrementAndGet();
-              continue;
+              // Possible list of TypedIncomingData objects
+              try {
+                requeuedList = JSON.parseToObject(message.message(), new TypeReference<List<TypedIncomingData>>() {});
+              } catch (Throwable ex1) {
+                LOG.error("Unable to deserialize data ", ex1);
+                deserializationErrors.incrementAndGet();
+                continue;
+              }
             }
             
             // to avoid tight requeue loops we want to sleep a spell
             // if we receive a data point that was recently added
             // to the queue
-            final long requeueDiff = System.currentTimeMillis() - 
-                requeued.getRequeueTS();
-            if (requeueDiff < requeue_delay) {
-              if (LOG.isDebugEnabled()) {
-                LOG.debug("Sleeping for "  + (requeue_delay - requeueDiff) 
-                    + " ms due to requeue delay");
+            datapointsReceived.addAndGet(requeuedList.size());
+            for(TypedIncomingData ev : requeuedList) {
+              final long requeueDiff = System.currentTimeMillis() - ev.getRequeueTS();
+              if (requeueDiff < requeue_delay) {
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("Sleeping for "  + (requeue_delay - requeueDiff)
+                          + " ms due to requeue delay");
+                }
+                //incrementCounter(CounterType.RequeuesDelayed, ns);
+                Thread.sleep(requeue_delay - requeueDiff);
               }
-              //incrementCounter(CounterType.RequeuesDelayed, ns);
-              Thread.sleep(requeue_delay - requeueDiff);
+
+              // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
+              final double w = rate_limiter.acquire();
+              cumulativeRateDelay.addAndGet(w);
+              ev.processData(this, recvTime);
             }
-            
-            // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
-            final double w = rate_limiter.acquire();
-            cumulativeRateDelay.addAndGet(w);
-            requeued.processData(this, recvTime);
             break;
           default:
               throw new IllegalStateException("Unknown consumer type: " + 
@@ -437,6 +458,11 @@ public class KafkaRpcPluginThread extends Thread {
   /** @return the number of messages received from Kafka */
   public long getMessagesReceived() {
     return messagesReceived.get();
+  }
+
+  /** @return the number of datapoints received from Kafka messages */
+  public long getDatapointsReceived() {
+    return datapointsReceived.get();
   }
   
   /** @return the number of deserialization errors */
