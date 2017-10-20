@@ -29,11 +29,8 @@ import static org.mockito.Mockito.when;
 import static org.powermock.api.mockito.PowerMockito.mock;
 import static org.powermock.api.mockito.PowerMockito.mockStatic;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -78,6 +75,7 @@ import com.stumbleupon.async.Deferred;
  Consumer.class, ConsumerConfig.class, PleaseThrottleException.class})
 public class TestKafkaRpcPluginThread {
   private static final String METRIC = "sys.cpu.user";
+  private static final String METRIC2 = "sys.cpu.iowait";
   private static final String PREFIX = "sys";
   private static final long TS = 1492641000L;
   private static final String LOCALHOST = "localhost";
@@ -405,6 +403,19 @@ public class TestKafkaRpcPluginThread {
   }
 
   @Test
+  public void runGoodMessageRawList() throws Exception {
+    setupRawDataList(false);
+    KafkaRpcPluginThread writer = Mockito.spy(
+            new KafkaRpcPluginThread(group, 1, TOPICS));
+    writer.run();
+
+    verifyMessageRead(writer, false);
+    verify(tsdb, times(1)).addPoint(METRIC, TS, 42L, TAGS);
+    verify(tsdb, times(1)).addPoint(METRIC2, TS, 42L, TAGS);
+    verifyCtrsInc(new String[]{ "readRawCounter", "storedRawCounter" }, 2);
+  }
+
+  @Test
   public void runGoodMessageRollup() throws Exception {
     when(group.getConsumerType()).thenReturn(TsdbConsumerType.ROLLUP);
     setupAggData(false, false);
@@ -456,8 +467,22 @@ public class TestKafkaRpcPluginThread {
 
     verifyMessageRead(writer, false);
     verify(tsdb, times(1)).addPoint(METRIC, TS, 42L, TAGS);
-    verifyCtrsInc(new String[]{ "readRequeueRawCounter", 
+    verifyCtrsInc(new String[]{ "readRequeueRawCounter",
         "storedRequeueRawCounter" });
+  }
+
+  @Test
+  public void runGoodMessageRequeueRawList() throws Exception {
+    when(group.getConsumerType()).thenReturn(TsdbConsumerType.REQUEUE_RAW);
+    setupRawDataList(true);
+    KafkaRpcPluginThread writer = Mockito.spy(
+            new KafkaRpcPluginThread(group, 1, TOPICS));
+    writer.run();
+
+    verifyMessageRead(writer, false);
+    verify(tsdb, times(1)).addPoint(METRIC, TS, 42L, TAGS);
+    verify(tsdb, times(1)).addPoint(METRIC2, TS, 42L, TAGS);
+    verifyCtrsInc(new String[]{ "readRequeueRawCounter", "storedRequeueRawCounter" }, 2);
   }
   
   @Test
@@ -725,6 +750,28 @@ public class TestKafkaRpcPluginThread {
     when(message.message()).thenReturn(JSON.serializeToBytes(data));
   }
 
+  private void setupRawDataList(final boolean requeued) {
+    when(tsdb.addPoint(anyString(), anyLong(), anyLong(), anyMap()))
+            .thenReturn(Deferred.fromResult(null));
+
+    TypedIncomingData ev1 = new Metric(METRIC, TS, "42", TAGS);
+    TypedIncomingData ev2 = new Metric(METRIC2, TS, "42", TAGS);
+
+    if (requeued) {
+      ev1.setRequeueTS(TS + 60);
+      ev2.setRequeueTS(TS + 60);
+    }
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("[");
+    sb.append(new String(JSON.serializeToBytes(ev1)));
+    sb.append(",");
+    sb.append(new String(JSON.serializeToBytes(ev2)));
+    sb.append("]");
+
+    when(message.message()).thenReturn(sb.toString().getBytes());
+  }
+
   private void setupAggData(final boolean requeued, final boolean is_group_by) {
     when(tsdb.addAggregatePoint(anyString(), anyLong(), anyLong(), anyMap(), 
       anyBoolean(), anyString(), anyString(), anyString()))
@@ -771,7 +818,17 @@ public class TestKafkaRpcPluginThread {
    * @param types The types to look for
    */
   private void verifyCtrsInc(final String[] types) {
-    verifyCtrsInc(types, PREFIX);
+    verifyCtrsInc(types, PREFIX, 1);
+  }
+
+  /**
+   * Runs through the list of types for the namespace and expects them to
+   * be 1. Any other CounterTypes should be zero. Uses default test NAMESPACE
+   * @param types The types to look for
+   * @param expectedCount Expected count (to be used for list message processing)
+   */
+  private void verifyCtrsInc(final String[] types, Integer expectedCount) {
+    verifyCtrsInc(types, PREFIX, expectedCount);
   }
     
   /**
@@ -781,6 +838,17 @@ public class TestKafkaRpcPluginThread {
    * @param namespace A namespace to look for
    */
   private void verifyCtrsInc(final String[] types, final String namespace) {
+    verifyCtrsInc(types, namespace, 1);
+  }
+
+  /**
+   * Runs through the list of types for the namespace and expects them to
+   * be 1. Any other CounterTypes should be zero.
+   * @param types The types to look for
+   * @param namespace A namespace to look for
+   * @param expectedCount Expected count (to be used for list message processing)
+   */
+  private void verifyCtrsInc(final String[] types, final String namespace, final Integer expectedCount) {
     for (final String type : types) {
       if (counters.get(type) == null) {
         throw new AssertionError("No ns map for type [" + type + "]");
@@ -789,7 +857,7 @@ public class TestKafkaRpcPluginThread {
         throw new AssertionError("No counter for type [" + type + 
             "] and ns [" + namespace + "]");
       }
-      if (counters.get(type).get(namespace).get() != 1) {
+      if (counters.get(type).get(namespace).get() != expectedCount) {
         throw new AssertionError("Counter was not zero for [" + type + 
             "] and ns [" + namespace + "]");
       }
