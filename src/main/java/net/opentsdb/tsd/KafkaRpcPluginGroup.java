@@ -207,6 +207,15 @@ public class KafkaRpcPluginGroup implements TimerTask {
     }
     return temp;
   }
+
+  /** @return the number of datapoints received across all threads */
+  public long getDatapointsReceived() {
+    long temp = 0;
+    for (final KafkaRpcPluginThread consumer : kafka_consumers) {
+      temp += consumer.getDatapointsReceived();
+    }
+    return temp;
+  }
   
   /** @return the number of seconds spent waiting on the rate limiter */
   public double getCumulativeRateDelay() {
@@ -272,6 +281,7 @@ public class KafkaRpcPluginGroup implements TimerTask {
     for (final KafkaRpcPluginThread consumer : kafka_consumers) {
       final Map<String, Double> thread = new HashMap<String, Double>();
       thread.put("messagesReceived", (double)consumer.getMessagesReceived());
+      thread.put("datapointsReceived", (double)consumer.getDatapointsReceived());
       thread.put("cumulativeRateDelay", consumer.getCumulativeRateDelay());
       thread.put("kafkaWaitTime", consumer.getKafkaWaitTime());
       map.put(consumer.threadID(), thread);

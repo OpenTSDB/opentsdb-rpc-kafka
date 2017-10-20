@@ -301,6 +301,7 @@ public class TestKafkaRpcPluginGroup {
     assertEquals(0, group.getRestarts());
     assertEquals(0, group.getRebalanceFailures());
     assertEquals(0, group.getMessagesReceived());
+    assertEquals(0, group.getDatapointsReceived());
     assertEquals(0, group.getDeserializationErrors());
   }
 
