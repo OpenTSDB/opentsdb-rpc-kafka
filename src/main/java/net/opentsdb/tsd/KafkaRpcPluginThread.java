@@ -279,7 +279,6 @@ public class KafkaRpcPluginThread extends Thread {
             List<TypedIncomingData> eventList = new ArrayList<TypedIncomingData>();
             TypedIncomingData event;
             try {
-              String val = new String(message.message());
               event = JSON.parseToObject(message.message(), TypedIncomingData.class);
               eventList.add(event);
             } catch (Throwable ex) {
@@ -287,7 +286,7 @@ public class KafkaRpcPluginThread extends Thread {
               try {
                 eventList = JSON.parseToObject(message.message(), new TypeReference<List<TypedIncomingData>>() {});
               } catch (Throwable ex1) {
-                LOG.error("Unable to deserialize data " + ex);
+                LOG.error("Unable to deserialize data ", ex1);
                 deserializationErrors.incrementAndGet();
                 continue;
               }
@@ -313,7 +312,7 @@ public class KafkaRpcPluginThread extends Thread {
               try {
                 requeuedList = JSON.parseToObject(message.message(), new TypeReference<List<TypedIncomingData>>() {});
               } catch (Throwable ex1) {
-                LOG.error("Unable to deserialize data " + ex);
+                LOG.error("Unable to deserialize data ", ex1);
                 deserializationErrors.incrementAndGet();
                 continue;
               }
