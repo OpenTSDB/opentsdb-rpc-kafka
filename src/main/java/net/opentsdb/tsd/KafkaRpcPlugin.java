@@ -62,6 +62,7 @@ public class KafkaRpcPlugin extends RpcPlugin implements TimerTask {
   
   private final Map<String, AtomicLong> totals_counters;
   private final AtomicLong messages_received = new AtomicLong();
+  private final AtomicLong datapoints_received = new AtomicLong();
   private final AtomicLong deserialization_errors = new AtomicLong();
   private final AtomicLong restarts = new AtomicLong();
   private final AtomicLong rebalance_failures = new AtomicLong();
@@ -205,6 +206,7 @@ public class KafkaRpcPlugin extends RpcPlugin implements TimerTask {
           new HashMap<String, Long>(CounterType.values().length);  
       
       long tempMessageReceived = 0;
+      long tempDatapointsReceived = 0;
       long tempDeserializationError = 0;
       long tempRestarts = 0;
       long tempRebalanceFailures = 0;
@@ -214,6 +216,7 @@ public class KafkaRpcPlugin extends RpcPlugin implements TimerTask {
       for (final KafkaRpcPluginGroup group : consumer_groups) {
         //group.getNamespaceCounters(tempNamespaceCounters);
         tempMessageReceived += group.getMessagesReceived();
+        tempDatapointsReceived += group.getDatapointsReceived();
         tempDeserializationError += group.getDeserializationErrors();
         tempRestarts += group.getRestarts();
         tempRebalanceFailures += group.getRebalanceFailures();
@@ -222,6 +225,7 @@ public class KafkaRpcPlugin extends RpcPlugin implements TimerTask {
       }
       
       messages_received.set(tempMessageReceived);
+      datapoints_received.set(tempDatapointsReceived);
       deserialization_errors.set(tempDeserializationError);
       restarts.set(tempRestarts);
       rebalance_failures.set(tempRebalanceFailures);

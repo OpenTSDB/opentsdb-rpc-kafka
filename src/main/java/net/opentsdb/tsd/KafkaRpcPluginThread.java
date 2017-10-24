@@ -127,6 +127,7 @@ public class KafkaRpcPluginThread extends Thread {
   private final AtomicBoolean thread_running = new AtomicBoolean();
   
   private final AtomicLong messagesReceived = new AtomicLong();
+  private final AtomicLong datapointsReceived = new AtomicLong();
   private final AtomicLong deserializationErrors = new AtomicLong();
   private final AtomicDouble cumulativeRateDelay = new AtomicDouble();
   private final AtomicDouble kafkaWaitTime = new AtomicDouble();
@@ -295,6 +296,7 @@ public class KafkaRpcPluginThread extends Thread {
             // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
             final double waiting = rate_limiter.acquire();
             cumulativeRateDelay.addAndGet(waiting);
+            datapointsReceived.addAndGet(eventList.size());
             for (TypedIncomingData ev : eventList) {
               ev.processData(this, recvTime);
             }
@@ -321,6 +323,7 @@ public class KafkaRpcPluginThread extends Thread {
             // to avoid tight requeue loops we want to sleep a spell
             // if we receive a data point that was recently added
             // to the queue
+            datapointsReceived.addAndGet(requeuedList.size());
             for(TypedIncomingData ev : requeuedList) {
               final long requeueDiff = System.currentTimeMillis() - ev.getRequeueTS();
               if (requeueDiff < requeue_delay) {
@@ -455,6 +458,11 @@ public class KafkaRpcPluginThread extends Thread {
   /** @return the number of messages received from Kafka */
   public long getMessagesReceived() {
     return messagesReceived.get();
+  }
+
+  /** @return the number of datapoints received from Kafka messages */
+  public long getDatapointsReceived() {
+    return datapointsReceived.get();
   }
   
   /** @return the number of deserialization errors */
