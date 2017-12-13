@@ -39,6 +39,7 @@ import kafka.message.MessageAndMetadata;
 import net.opentsdb.core.IncomingDataPoint;
 import net.opentsdb.core.TSDB;
 import net.opentsdb.data.TypedIncomingData;
+import net.opentsdb.data.deserializers.Deserializer;
 import net.opentsdb.tsd.KafkaRpcPluginGroup.TsdbConsumerType;
 import net.opentsdb.utils.JSON;
 
@@ -61,10 +62,6 @@ public class KafkaRpcPluginThread extends Thread {
   private static final Logger LOG = LoggerFactory.getLogger(
       KafkaRpcPluginThread.class);
 
-  /** The type reference for a list of incoming data points. */
-  private static final TypeReference<List<TypedIncomingData>> DATA_LIST = 
-      new TypeReference<List<TypedIncomingData>>() {};
-  
   /** Types of metrics we're tracking */
   public enum CounterType {
     ReadRaw("readRawCounter"),
@@ -135,6 +132,7 @@ public class KafkaRpcPluginThread extends Thread {
   private final AtomicLong deserializationErrors = new AtomicLong();
   private final AtomicDouble cumulativeRateDelay = new AtomicDouble();
   private final AtomicDouble kafkaWaitTime = new AtomicDouble();
+  private final Deserializer deserializer;
   
   private ConsumerConnector consumer;
   
@@ -189,6 +187,7 @@ public class KafkaRpcPluginThread extends Thread {
     } else {
       requeue_delay = 0;
     }
+    deserializer = group.getDeserializer();
   }
 
   @Override
@@ -277,44 +276,13 @@ public class KafkaRpcPluginThread extends Thread {
           // system time.
           final long recvTime = System.currentTimeMillis();
           
-          // find the first non-whitespace character and it should either be a
-          // [ for an array of messages or { for a single message.
-          final byte[] payload = message.message();
-          if (payload.length < 1) {
-            LOG.error("Unable to deserialize data. Empty byte array.");
-            deserializationErrors.incrementAndGet();
-            continue;
-          }
-          final byte firstCharacter = payload[0];
-          
           switch (consumer_type) {
           case RAW:
           case ROLLUP:
             // Deserialize the event from the received (opaque) message.
-            List<TypedIncomingData> eventList;
-            switch (firstCharacter) {
-            case 91: // [
-              try {
-                eventList = JSON.parseToObject(payload, DATA_LIST);
-              } catch (Throwable ex1) {
-                LOG.error("Unable to deserialize data ", ex1);
-                deserializationErrors.incrementAndGet();
-                continue;
-              }
-              break;
-            case 123: // {
-              try {
-                eventList = new ArrayList<TypedIncomingData>(1);
-                eventList.add(JSON.parseToObject(payload, 
-                    TypedIncomingData.class));
-              } catch (Throwable ex1) {
-                LOG.error("Unable to deserialize data ", ex1);
-                deserializationErrors.incrementAndGet();
-                continue;
-              }
-              break;
-            default:
-              LOG.error("Unable to deserialize data");
+            final List<TypedIncomingData> eventList = 
+              deserializer.deserialize(this, message.message());
+            if (eventList == null) {
               deserializationErrors.incrementAndGet();
               continue;
             }
@@ -330,30 +298,9 @@ public class KafkaRpcPluginThread extends Thread {
           case REQUEUE_RAW:
           case REQUEUE_ROLLUP:
           case UID_ABUSE:
-            List<TypedIncomingData> requeuedList;
-            switch (firstCharacter) {
-            case 91: // [
-              try {
-                requeuedList = JSON.parseToObject(payload, DATA_LIST);
-              } catch (Throwable ex1) {
-                LOG.error("Unable to deserialize data ", ex1);
-                deserializationErrors.incrementAndGet();
-                continue;
-              }
-              break;
-            case 123: // {
-              try {
-                requeuedList = new ArrayList<TypedIncomingData>(1);
-                requeuedList.add(JSON.parseToObject(payload, 
-                    TypedIncomingData.class));
-              } catch (Throwable ex1) {
-                LOG.error("Unable to deserialize data ", ex1);
-                deserializationErrors.incrementAndGet();
-                continue;
-              }
-              break;
-            default:
-              LOG.error("Unable to deserialize data");
+            final List<TypedIncomingData> requeuedList = 
+              deserializer.deserialize(this, message.message());
+            if (requeuedList == null) {
               deserializationErrors.incrementAndGet();
               continue;
             }

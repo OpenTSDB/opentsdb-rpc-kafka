@@ -72,6 +72,8 @@ public class TestKafkaRpcPluginGroup {
     config.overrideConfig(CONF_PREFIX + ".topics", 
         "TSDB_600_1,TSDB_600_2,TSDB_600_3");
     config.overrideConfig(CONF_PREFIX + ".consumerType", "raw");
+    config.overrideConfig(CONF_PREFIX + ".deserializer", 
+        "net.opentsdb.data.deserializers.JSONDeserializer");
     threads = new ArrayList<KafkaRpcPluginThread>(1);
     PowerMockito.whenNew(KafkaRpcPluginThread.class).withAnyArguments()
       .thenAnswer(new Answer<KafkaRpcPluginThread>() {
@@ -191,6 +193,25 @@ public class TestKafkaRpcPluginGroup {
   @Test (expected = IllegalArgumentException.class)
   public void ctorEmptyTypeOverride() throws Exception {
     config.overrideConfig(CONF_PREFIX + ".consumerType", "");
+    new KafkaRpcPluginGroup(parent, GROUPID);
+  }
+  
+  @Test (expected = IllegalArgumentException.class)
+  public void ctorNullDeserializer() throws Exception {
+    config.overrideConfig(CONF_PREFIX + ".deserializer", null);
+    new KafkaRpcPluginGroup(parent, GROUPID);
+  }
+  
+  @Test (expected = IllegalArgumentException.class)
+  public void ctorEmptyDeserializer() throws Exception {
+    config.overrideConfig(CONF_PREFIX + ".deserializer", "");
+    new KafkaRpcPluginGroup(parent, GROUPID);
+  }
+  
+  @Test (expected = IllegalArgumentException.class)
+  public void ctorNoSuchDeserializer() throws Exception {
+    config.overrideConfig(CONF_PREFIX + ".deserializer", 
+        "net.opentsdb.data.deserializers.NoSuchDeserializer");
     new KafkaRpcPluginGroup(parent, GROUPID);
   }
   

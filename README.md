@@ -26,13 +26,17 @@ This plugin allows OpenTSDB to consume messages from a Kafka cluster and write t
 
 ## Usage
 
-The plugin expects (currently) JSON formatted messages flowing from the Kafka brokers. Each JSON message *must* include a ``type`` field with the value being one of the following:
+The plugin can accept various message formats using classes implementing the `net.opentsdb.data.deserializers.Deserializer` interface. A `Deserializer` must be defined per consumer group and all messages in the topics must be of the same format. 
+
+For default JSON formatted messages, use the `net.opentsdb.data.deserializers.JSONDeserializer`. Each JSON message *must* include a ``type`` field with the value being one of the following:
 
 * **Metric** A single numeric measurement.
 * **Aggregate** A single numeric measurement that may be a pre-aggregate, a rolled up data point or both.
 * **Histogram** A single histogram measurement.
 
 Each message is similar to the HTTP JSON messages in the OpenTSDB API with the addition of the ``type`` field so that the JSON deserializer can figure out what the message contains.
+
+The deserialization class must return a list of typed objects as defined below (with JSON provided as an example).
 
 ###Metric
 
@@ -61,8 +65,6 @@ Aggregate messages are the same as those documented in [/api/rollup] (http://ope
 
 Histogram messages are documented at [/api/histogram] (http://opentsdb.net/docs/build/html/api_http/histogram.html).
 
-**TODO** We would also like to support more streamlined formats rather than JSON, work is underway for those.
-
 ## Configuration
 
 The following properties can be stored in the ``opentsdb.conf`` file:
@@ -74,6 +76,7 @@ The following properties can be stored in the ``opentsdb.conf`` file:
 |KafkaRpcPlugin.groups|String|Required|A comma separated list of one or more consumer group names.||TsdbConsumer,TsdbRequeueConsumer|
 |KafkaRpcPlugin.\<GROUPNAME\>.topics|String|Required|A comma separated list of one or more topics for the ``<GROUPNAME>`` to consume from.||TSDB_1,TSDB_2|
 |KafkaRpcPlugin.\<GROUPNAME\>.consumerType|String|Required|The type of messages written to the queue. TODO. For now, leave it as ``raw``||raw|
+|KafkaRpcPlugin.\<GROUPNAME\>.Deserializer|String|Required|The deserialization class to use for parsing messages from the Kafka topic.||net.opentsdb.data.deserializers.JSONDeserializer|
 |KafkaRpcPlugin.\<GROUPNAME\>.rate|Integer|Required|How many messages per second to throttle the total of consumer threads at for the consumer group||250000|
 |KafkaRpcPlugin.\<GROUPNAME\>.threads|Integer|Required|The number of consumer threads to create per group||4|
 |tsd.http.rpc.plugins|String|Optional|A comma separated list of HTTP RPC plugins to load. Included with this package is a plugin that allows for fetching stats from the Kafka plugin as well as viewing or modifying the write rate during runtime.||net.opentsdb.tsd.KafkaHttpRpcPlugin|

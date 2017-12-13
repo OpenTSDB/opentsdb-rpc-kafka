@@ -29,8 +29,11 @@ import static org.mockito.Mockito.when;
 import static org.powermock.api.mockito.PowerMockito.mock;
 import static org.powermock.api.mockito.PowerMockito.mockStatic;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -49,6 +52,8 @@ import net.opentsdb.data.Aggregate;
 import net.opentsdb.data.Histogram;
 import net.opentsdb.data.Metric;
 import net.opentsdb.data.TypedIncomingData;
+import net.opentsdb.data.deserializers.Deserializer;
+import net.opentsdb.data.deserializers.JSONDeserializer;
 import net.opentsdb.tsd.KafkaRpcPluginGroup.TsdbConsumerType;
 import net.opentsdb.utils.Config;
 import net.opentsdb.utils.JSON;
@@ -98,6 +103,7 @@ public class TestKafkaRpcPluginThread {
   private KafkaRpcPlugin parent;
   private KafkaStorageExceptionHandler requeue;
   private ConcurrentMap<String, Map<String, AtomicLong>> counters;
+  private Deserializer deserializer;
 
   @SuppressWarnings("unchecked")
   @Before
@@ -109,6 +115,7 @@ public class TestKafkaRpcPluginThread {
     rate_limiter = mock(RateLimiter.class);
     requeue = mock(KafkaStorageExceptionHandler.class);
     counters = new ConcurrentHashMap<String, Map<String, AtomicLong>>();
+    deserializer = new JSONDeserializer();
     
     consumer_connector = mock(ConsumerConnector.class);
 
@@ -130,6 +137,7 @@ public class TestKafkaRpcPluginThread {
     when(group.getRateLimiter()).thenReturn(rate_limiter);
     when(group.getGroupID()).thenReturn(GROUPID);
     when(group.getConsumerType()).thenReturn(TsdbConsumerType.RAW);
+    when(group.getDeserializer()).thenReturn(deserializer);
     
     config.overrideConfig(KafkaRpcPluginConfig.KAFKA_CONFIG_PREFIX 
         + "zookeeper.connect", ZKS);

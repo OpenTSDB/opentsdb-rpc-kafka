@@ -12,6 +12,7 @@
 // see <http://www.gnu.org/licenses/>.
 package net.opentsdb.tsd;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +29,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.util.concurrent.RateLimiter;
+
+import joptsimple.internal.Strings;
+import net.opentsdb.data.deserializers.Deserializer;
+import net.opentsdb.utils.PluginLoader;
 
 /**
  * A group of consumers that pull from a list of one or more topics. This group
@@ -71,6 +76,7 @@ public class KafkaRpcPluginGroup implements TimerTask {
   
   private final AtomicLong restarts = new AtomicLong();
   private final AtomicLong rebalance_failures = new AtomicLong();
+  private Deserializer deserializer = null;
   
   private double current_rate;
   
@@ -128,6 +134,51 @@ public class KafkaRpcPluginGroup implements TimerTask {
     }
     
     timer.newTimeout(this, config.threadCheckInterval(), TimeUnit.MILLISECONDS);
+    
+    final String deser_class = config.getString(
+        KafkaRpcPluginConfig.PLUGIN_PROPERTY_BASE + groupID + ".deserializer");
+    if (Strings.isNullOrEmpty(deser_class)) {
+      throw new IllegalArgumentException("Deserializer class cannot be null or empty.");
+    }
+    
+    
+    try {
+      Class<?> clazz = Class.forName(deser_class);
+      if (clazz != null) {
+        deserializer = (Deserializer) clazz.getDeclaredConstructor().newInstance();
+      }
+    } catch (ClassNotFoundException e) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("No class [" + deser_class + "] found on the class path, "
+            + "trying the plugin loader.");
+      }
+    } catch (InstantiationException e) {
+      LOG.warn("Found instance of [" + deser_class 
+          + "] but failed to instantiate it:", e);
+    } catch (IllegalAccessException e) {
+      LOG.warn("Found instance of [" + deser_class 
+          + "] but failed to instantiate it:", e);
+    } catch (IllegalArgumentException e) {
+      LOG.warn("Found instance of [" + deser_class 
+          + "] but failed to instantiate it:", e);
+    } catch (InvocationTargetException e) {
+      LOG.warn("Found instance of [" + deser_class 
+          + "] but failed to instantiate it:", e);
+    } catch (NoSuchMethodException e) {
+      LOG.warn("Found instance of [" + deser_class 
+          + "] but failed to instantiate it:", e);
+    } catch (SecurityException e) {
+      LOG.warn("Found instance of [" + deser_class 
+          + "] but failed to instantiate it:", e);
+    }
+    
+    if (deserializer == null) {
+      deserializer = PluginLoader.loadSpecificPlugin(deser_class, Deserializer.class);
+    }
+    if (deserializer == null) {
+      throw new IllegalArgumentException("Unable to find a deserializer "
+          + "for class [" + deser_class + "]");
+    }
   }
   
   @Override
@@ -319,6 +370,11 @@ public class KafkaRpcPluginGroup implements TimerTask {
       // limiter requires a positive value, can't set it to 0
       rate_limiter.setRate(rate);
     }
+  }
+  
+  /** @return The deserializer for this group. */
+  public Deserializer getDeserializer() {
+    return deserializer;
   }
   
   /**
