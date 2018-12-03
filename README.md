@@ -76,7 +76,7 @@ The following properties can be stored in the ``opentsdb.conf`` file:
 |KafkaRpcPlugin.groups|String|Required|A comma separated list of one or more consumer group names.||TsdbConsumer,TsdbRequeueConsumer|
 |KafkaRpcPlugin.\<GROUPNAME\>.topics|String|Required|A comma separated list of one or more topics for the ``<GROUPNAME>`` to consume from.||TSDB_1,TSDB_2|
 |KafkaRpcPlugin.\<GROUPNAME\>.consumerType|String|Required|The type of messages written to the queue. TODO. For now, leave it as ``raw``||raw|
-|KafkaRpcPlugin.\<GROUPNAME\>.Deserializer|String|Required|The deserialization class to use for parsing messages from the Kafka topic.||net.opentsdb.data.deserializers.JSONDeserializer|
+|KafkaRpcPlugin.\<GROUPNAME\>.deserializer|String|Required|The deserialization class to use for parsing messages from the Kafka topic.||net.opentsdb.data.deserializers.JSONDeserializer|
 |KafkaRpcPlugin.\<GROUPNAME\>.rate|Integer|Required|How many messages per second to throttle the total of consumer threads at for the consumer group||250000|
 |KafkaRpcPlugin.\<GROUPNAME\>.threads|Integer|Required|The number of consumer threads to create per group||4|
 |tsd.http.rpc.plugins|String|Optional|A comma separated list of HTTP RPC plugins to load. Included with this package is a plugin that allows for fetching stats from the Kafka plugin as well as viewing or modifying the write rate during runtime.||net.opentsdb.tsd.KafkaHttpRpcPlugin|
