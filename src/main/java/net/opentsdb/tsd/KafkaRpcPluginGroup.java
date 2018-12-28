@@ -129,12 +129,6 @@ public class KafkaRpcPluginGroup implements TimerTask {
             : KafkaRpcPluginConfig.DEFAULT_CONSUMER_THREADS;
     kafka_consumers = new ArrayList<KafkaRpcPluginThread>(num_threads);
     
-    for (int i = 0; i < num_threads; i++) {
-      kafka_consumers.add(new KafkaRpcPluginThread(this, i, topics));
-    }
-    
-    timer.newTimeout(this, config.threadCheckInterval(), TimeUnit.MILLISECONDS);
-    
     final String deser_class = config.getString(
         KafkaRpcPluginConfig.PLUGIN_PROPERTY_BASE + groupID + ".deserializer");
     if (Strings.isNullOrEmpty(deser_class)) {
@@ -179,6 +173,12 @@ public class KafkaRpcPluginGroup implements TimerTask {
       throw new IllegalArgumentException("Unable to find a deserializer "
           + "for class [" + deser_class + "]");
     }
+
+    for (int i = 0; i < num_threads; i++) {
+      kafka_consumers.add(new KafkaRpcPluginThread(this, i, topics));
+    }
+
+    timer.newTimeout(this, config.threadCheckInterval(), TimeUnit.MILLISECONDS);
   }
   
   @Override
