@@ -11,6 +11,8 @@
 
 This plugin allows OpenTSDB to consume messages from a Kafka cluster and write them directly to storage, bypassing the Telnet style or HTTP APIs. It includes a Storage Exception Handler plugin that will post messages back to a Kafka queue if writing to storage fails.
 
+**NOTE:** This branch is compatible with OpenTSDB 2.4.x. For 2.3.x please use the `2.3` branch from Git.
+
 ## Installation
 
 1. Download the source code and run ``mvn package`` to create the jar in the ``target/`` directory. Copy this file to your OpenTSDB plugin directory as defined in the opentsdb config via ``tsd.core.plugin_path``.
