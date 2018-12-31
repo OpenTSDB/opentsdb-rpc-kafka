@@ -1,5 +1,5 @@
 // This file is part of OpenTSDB.
-// Copyright (C) 2017  The OpenTSDB Authors.
+// Copyright (C) 2018  The OpenTSDB Authors.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License as published by
@@ -26,8 +26,6 @@ import net.opentsdb.tsd.KafkaRpcPluginThread;
     property = "type")
 @JsonSubTypes({ 
     @Type(value = Metric.class),
-    @Type(value = Aggregate.class),
-    @Type(value = Histogram.class),
     @Type(value = Metrics.class),
 })
 public interface TypedIncomingData {

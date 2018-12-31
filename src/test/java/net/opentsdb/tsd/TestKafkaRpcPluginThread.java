@@ -1,5 +1,5 @@
 // This file is part of OpenTSDB.
-// Copyright (C) 2017  The OpenTSDB Authors.
+// Copyright (C) 2017-2018  The OpenTSDB Authors.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License as published by
@@ -16,12 +16,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyMap;
 import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,7 +27,6 @@ import static org.mockito.Mockito.when;
 import static org.powermock.api.mockito.PowerMockito.mock;
 import static org.powermock.api.mockito.PowerMockito.mockStatic;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -45,11 +42,8 @@ import kafka.consumer.KafkaStream;
 import kafka.consumer.TopicFilter;
 import kafka.javaapi.consumer.ConsumerConnector;
 import kafka.message.MessageAndMetadata;
-import net.opentsdb.core.HistogramCodecManager;
 import net.opentsdb.core.IncomingDataPoint;
 import net.opentsdb.core.TSDB;
-import net.opentsdb.data.Aggregate;
-import net.opentsdb.data.Histogram;
 import net.opentsdb.data.Metric;
 import net.opentsdb.data.TypedIncomingData;
 import net.opentsdb.data.deserializers.Deserializer;
@@ -70,6 +64,7 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.RateLimiter;
 import com.stumbleupon.async.Deferred;
 
@@ -87,9 +82,10 @@ public class TestKafkaRpcPluginThread {
   private static final String TOPICS = "TSDB_600_1,TSDB_600_2,TSDB_600_3";
   private static final String GROUPID = "testGroup";
   private static final String ZKS = "192.168.1.1:2181";
-  private Map<String, String> TAGS = ImmutableMap.<String, String>builder()
+  private Map<String, String> TAGS = Maps.newHashMap(
+      ImmutableMap.<String, String>builder()
     .put("host", "web01")
-    .build();
+    .build());
   
   private TSDB tsdb;
   private KafkaRpcPluginConfig config;
@@ -350,10 +346,6 @@ public class TestKafkaRpcPluginThread {
         new KafkaRpcPluginThread(group, 1, TOPICS));
     writer.run();
     verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
     verify(consumer_connector, times(1))
       .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
     verify(writer, times(1)).shutdown();
@@ -369,10 +361,6 @@ public class TestKafkaRpcPluginThread {
     writer.run();
     writer.run();
     verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
     verify(consumer_connector, times(2))
       .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
     verify(writer, times(2)).shutdown();
@@ -388,10 +376,6 @@ public class TestKafkaRpcPluginThread {
         new KafkaRpcPluginThread(group, 1, TOPICS));
     writer.run();
     verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
     verify(consumer_connector, times(1))
       .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
     verify(writer, times(1)).shutdown();
@@ -424,48 +408,6 @@ public class TestKafkaRpcPluginThread {
   }
 
   @Test
-  public void runGoodMessageRollup() throws Exception {
-    when(group.getConsumerType()).thenReturn(TsdbConsumerType.ROLLUP);
-    setupAggData(false, false);
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, false);
-    verify(tsdb, times(1)).addAggregatePoint(METRIC, TS, 42L, TAGS, false, 
-        "1h", "sum", null);
-    verifyCtrsInc(new String[]{ "readRollupCounter", "storedRollupCounter" });
-  }
-  
-  @Test
-  public void runGoodMessagePreAgg() throws Exception {
-    setupAggData(false, true);
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, false);
-    verify(tsdb, times(1)).addAggregatePoint(METRIC, TS, 42L, TAGS, true, 
-        null, null, "sum");
-    verifyCtrsInc(new String[]{ "readAggregateCounter", 
-        "storedAggregateCounter" });
-  }
-  
-  @Test
-  public void runGoodMessageHistogram() throws Exception {
-    setupHistogramData(false);
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, false);
-    verify(tsdb, times(1)).addHistogramPoint(eq(METRIC), eq(TS), 
-        any(byte[].class), eq(TAGS));
-    verifyCtrsInc(new String[]{ "readHistogramCounter", 
-        "storedHistogramCounter" });
-  }
-  
-  @Test
   public void runGoodMessageRequeueRaw() throws Exception {
     when(group.getConsumerType()).thenReturn(TsdbConsumerType.REQUEUE_RAW);
     setupRawData(true);
@@ -494,50 +436,6 @@ public class TestKafkaRpcPluginThread {
   }
   
   @Test
-  public void runGoodMessageRequeueRollup() throws Exception {
-    when(group.getConsumerType()).thenReturn(TsdbConsumerType.REQUEUE_ROLLUP);
-    setupAggData(true, false);
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, false);
-    verify(tsdb, times(1)).addAggregatePoint(METRIC, TS, 42L, TAGS, false, 
-        "1h", "sum", null);
-    verifyCtrsInc(new String[]{ "readRequeueRollupCounter", 
-      "storedRequeueRollupCounter" });
-  }
-  
-  @Test
-  public void runGoodMessageRequeuePreAgg() throws Exception {
-    when(group.getConsumerType()).thenReturn(TsdbConsumerType.REQUEUE_ROLLUP);
-    setupAggData(true, true);
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, false);
-    verify(tsdb, times(1)).addAggregatePoint(METRIC, TS, 42L, TAGS, true, 
-        null, null, "sum");
-    verifyCtrsInc(new String[]{ "readRequeueAggregateCounter", 
-        "storedRequeueAggregateCounter" });
-  }
-  
-  @Test
-  public void runGoodMessageRequeueHistogram() throws Exception {
-    setupHistogramData(true);
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, false);
-    verify(tsdb, times(1)).addHistogramPoint(eq(METRIC), eq(TS), 
-        any(byte[].class), eq(TAGS));
-    verifyCtrsInc(new String[]{ "readRequeueHistogramCounter", 
-        "storedRequeueHistogramCounter" });
-  }
-
-  @Test
   public void runEmptyData() throws Exception {
     when(message.message()).thenReturn(new byte[] { '{', '}' });
     KafkaRpcPluginThread writer = Mockito.spy(
@@ -545,10 +443,6 @@ public class TestKafkaRpcPluginThread {
     writer.run();
     
     verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
     verifyMessageRead(writer, false);
   }
 
@@ -563,10 +457,6 @@ public class TestKafkaRpcPluginThread {
 
     writer.run();
     verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
     verifyMessageRead(writer, false);
   }
   
@@ -585,60 +475,6 @@ public class TestKafkaRpcPluginThread {
         "storageExceptionCounter" });
   }
 
-  @Test
-  public void runStorageFailureRollup() throws Exception {
-    when(group.getConsumerType()).thenReturn(TsdbConsumerType.ROLLUP);
-    setupAggData(false, false);
-    when(tsdb.addAggregatePoint(anyString(), anyLong(), anyLong(), anyMap(), 
-        anyBoolean(), anyString(), anyString(), anyString()))
-      .thenReturn(Deferred.fromResult(mock(HBaseException.class)));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, true);
-    verify(tsdb, times(1)).addAggregatePoint(METRIC, TS, 42L, TAGS, false, 
-        "1h", "sum", null);
-    verifyCtrsInc(new String[]{ "readRollupCounter", "requeuedRollupCounter",
-      "storageExceptionCounter" });
-  }
-  
-  @Test
-  public void runStorageFailurePreAgg() throws Exception {
-    when(group.getConsumerType()).thenReturn(TsdbConsumerType.ROLLUP);
-    setupAggData(false, true);
-    when(tsdb.addAggregatePoint(anyString(), anyLong(), anyLong(), anyMap(), 
-        anyBoolean(), anyString(), anyString(), anyString()))
-      .thenReturn(Deferred.fromResult(mock(HBaseException.class)));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, true);
-    verify(tsdb, times(1)).addAggregatePoint(METRIC, TS, 42L, TAGS, true, 
-        null, null, "sum");
-    verifyCtrsInc(new String[]{ "readAggregateCounter", "requeuedAggregateCounter",
-      "storageExceptionCounter" });
-  }
-  
-  @Test
-  public void runStorageFailureHistogram() throws Exception {
-    when(group.getConsumerType()).thenReturn(TsdbConsumerType.ROLLUP);
-    setupHistogramData(false);
-    when(tsdb.addHistogramPoint(anyString(), anyLong(), any(byte[].class), 
-        anyMap()))
-      .thenReturn(Deferred.fromResult(mock(HBaseException.class)));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-
-    verifyMessageRead(writer, true);
-    verify(tsdb, times(1)).addHistogramPoint(eq(METRIC), eq(TS), 
-        any(byte[].class), eq(TAGS));
-    verifyCtrsInc(new String[]{ "readHistogramCounter", "requeuedHistogramCounter",
-      "storageExceptionCounter" });
-  }
-  
   @SuppressWarnings("unchecked")
   @Test
   public void runRequeueWTF() throws Exception {
@@ -778,46 +614,6 @@ public class TestKafkaRpcPluginThread {
     sb.append("]");
 
     when(message.message()).thenReturn(sb.toString().getBytes());
-  }
-
-  private void setupAggData(final boolean requeued, final boolean is_group_by) {
-    when(tsdb.addAggregatePoint(anyString(), anyLong(), anyLong(), anyMap(), 
-      anyBoolean(), anyString(), anyString(), anyString()))
-      .thenReturn(Deferred.fromResult(null));
-    if (is_group_by) {
-      data = new Aggregate(METRIC, TS, "42", TAGS, null, null, "sum");
-    } else {
-      data = new Aggregate(METRIC, TS, "42", TAGS, "1h", "sum", null);
-    }
-    if (requeued) {
-      data.setRequeueTS(TS + 60);
-    }
-    when(message.message()).thenReturn(JSON.serializeToBytes(data));
-  }
-
-  private void setupHistogramData(final boolean requeued) {
-    config.overrideConfig("tsd.core.histograms.config", 
-        "{\"net.opentsdb.core.SimpleHistogramDecoder\": 42}");
-    final HistogramCodecManager manager;
-    manager = new HistogramCodecManager(tsdb);
-    when(tsdb.histogramManager()).thenReturn(manager);
-    when(tsdb.addHistogramPoint(anyString(), anyLong(), any(byte[].class), 
-        anyMap()))
-      .thenReturn(Deferred.fromResult(null));
-    final Histogram histo = new Histogram();
-    histo.setMetric(METRIC);
-    histo.setTimestamp(TS);
-    histo.setTags(new HashMap<String, String>(TAGS));
-    histo.setOverflow(1);
-    histo.setBuckets(ImmutableMap.<String, Long>builder()
-        .put("0,1", 42L)
-        .put("1,5", 24L)
-        .build());
-    data = histo;
-    if (requeued) {
-      data.setRequeueTS(TS + 60);
-    }
-    when(message.message()).thenReturn(JSON.serializeToBytes(data));
   }
 
   /**

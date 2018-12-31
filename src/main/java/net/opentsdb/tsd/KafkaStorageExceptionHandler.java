@@ -1,5 +1,5 @@
 // This file is part of OpenTSDB.
-// Copyright (C) 2017  The OpenTSDB Authors.
+// Copyright (C) 2017-2018  The OpenTSDB Authors.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License as published by
@@ -30,8 +30,6 @@ import kafka.producer.KeyedMessage;
 import kafka.producer.ProducerConfig;
 import net.opentsdb.core.IncomingDataPoint;
 import net.opentsdb.core.TSDB;
-import net.opentsdb.data.Aggregate;
-import net.opentsdb.data.Histogram;
 import net.opentsdb.data.Metric;
 import net.opentsdb.stats.StatsCollector;
 import net.opentsdb.utils.JSON;
@@ -183,13 +181,9 @@ public class KafkaStorageExceptionHandler extends StorageExceptionHandler {
       
       if (dp instanceof Metric) {
         type = KafkaRequeueTopic.RAW;
-      } else if (dp instanceof Aggregate && 
-          Strings.isNullOrEmpty(((Aggregate) dp).getInterval())) {
-        type = KafkaRequeueTopic.PREAGGREGATE;
-      } else if (dp instanceof Aggregate) {
-        type = KafkaRequeueTopic.ROLLUP;
-      } else if (dp instanceof Histogram) {
-        type = KafkaRequeueTopic.HISTOGRAM;
+      } else {
+        LOG.warn("Unhandled data type: " + dp.getClass());
+        return;
       }
       
       String topic = topic_name_map.get(type);

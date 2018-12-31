@@ -21,7 +21,7 @@ public class TestTypedIncomingDataPoint {
 
   @Test
   public void foo() throws Exception {
-    String json = "{\"type\":\"Histogram\",\"metric\":\"sys.cpu.user\",\"id\":42}";
+    String json = "{\"type\":\"Metric\",\"metric\":\"sys.cpu.user\",\"value\":42}";
     
     TypedIncomingData dp = JSON.parseToObject(json, TypedIncomingData.class);
     System.out.println("Type: " + dp.getClass());

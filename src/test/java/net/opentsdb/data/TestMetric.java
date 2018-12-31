@@ -1,5 +1,5 @@
 // This file is part of OpenTSDB.
-// Copyright (C) 2017  The OpenTSDB Authors.
+// Copyright (C) 2017-2018  The OpenTSDB Authors.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License as published by
@@ -37,6 +37,7 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.stumbleupon.async.Deferred;
 
 import net.opentsdb.core.TSDB;
@@ -49,9 +50,10 @@ import net.opentsdb.tsd.KafkaRpcPluginThread.CounterType;
 public class TestMetric {
   private static final String METRIC = "sys.cpu.user";
   private static final long TS = 1492641000L;
-  private Map<String, String> TAGS = ImmutableMap.<String, String>builder()
+  private Map<String, String> TAGS = Maps.newHashMap(
+      ImmutableMap.<String, String>builder()
       .put("host", "web01")
-      .build();
+      .build());
   
   private TSDB tsdb;
   private KafkaRpcPluginThread consumer;
