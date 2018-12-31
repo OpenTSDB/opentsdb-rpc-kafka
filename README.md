@@ -5,7 +5,7 @@
       \___/| .__/ \___|_| |_|_| |____/|____/|____/
            |_|    The modern time series database.
 
-[![Build Status](https://travis-ci.org/OpenTSDB/opentsdb-tdigests.svg?branch=master)](https://travis-ci.org/OpenTSDB/opentsdb-tdigests) [![Coverage Status](https://coveralls.io/repos/github/OpenTSDB/opentsdb-tdigests/badge.svg?branch=master)](https://coveralls.io/github/OpenTSDB/opentsdb-tdigests?branch=master)
+[![Build Status](https://travis-ci.org/OpenTSDB/opentsdb-rpc-kafka.svg?branch=master)](https://travis-ci.org/OpenTSDB/opentsdb-rpc-kafka) [![Coverage Status](https://coveralls.io/repos/github/OpenTSDB/opentsdb-rpc-kafka/badge.svg?branch=master)](https://coveralls.io/github/OpenTSDB/opentsdb-rpc-kafka?branch=master)
 
 # Kafka RPC Plugin
 
