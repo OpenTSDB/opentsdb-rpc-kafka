@@ -5,11 +5,13 @@
       \___/| .__/ \___|_| |_|_| |____/|____/|____/
            |_|    The modern time series database.
 
-[![Build Status](https://travis-ci.org/OpenTSDB/opentsdb-rpc-kafka.svg?branch=master)](https://travis-ci.org/OpenTSDB/opentsdb-rpc-kafka) [![Coverage Status](https://coveralls.io/repos/github/OpenTSDB/opentsdb-rpc-kafka/badge.svg?branch=master)](https://coveralls.io/github/OpenTSDB/opentsdb-rpc-kafka?branch=master)
+[![Build Status](https://travis-ci.org/OpenTSDB/opentsdb-rpc-kafka.svg?branch=2.3)](https://travis-ci.org/OpenTSDB/opentsdb-rpc-kafka) [![Coverage Status](https://coveralls.io/repos/github/OpenTSDB/opentsdb-rpc-kafka/badge.svg?branch=2.3)](https://coveralls.io/github/OpenTSDB/opentsdb-rpc-kafka?branch=2.3)
 
 # Kafka RPC Plugin
 
 This plugin allows OpenTSDB to consume messages from a Kafka cluster and write them directly to storage, bypassing the Telnet style or HTTP APIs. It includes a Storage Exception Handler plugin that will post messages back to a Kafka queue if writing to storage fails.
+
+**NOTE:** This version is compatible with OpenTSDB 2.3.x. Use the *master* branch for 2.4.x
 
 ## Installation
 
