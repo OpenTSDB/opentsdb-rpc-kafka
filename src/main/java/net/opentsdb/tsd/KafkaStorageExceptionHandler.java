@@ -73,7 +73,6 @@ public class KafkaStorageExceptionHandler extends StorageExceptionHandler {
   
   /**
    * Default ctor
-   * @param config The config to pull settings from
    * @throws IllegalArgumentException if a required config value isn't set
    */
   public KafkaStorageExceptionHandler() {
