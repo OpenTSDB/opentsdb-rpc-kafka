@@ -15,7 +15,7 @@ This plugin allows OpenTSDB to consume messages from a Kafka cluster and write t
 
 ## Installation
 
-1. Download the source code and run ``mvn package`` to create the jar in the ``target/`` directory. Copy this file to your OpenTSDB plugin directory as defined in the opentsdb config via ``tsd.core.plugin_path``.
+1. Download the source code and run ``mvn package -Pshaded`` to create the shaded jar in the ``target/`` directory. Copy this file to your OpenTSDB plugin directory as defined in the opentsdb config via ``tsd.core.plugin_path`` (Note that without the `-P` flag it will simply build a basic jar without the Kafka libraries. Those will need to be on your class path.).
 1. Setup the appropriate Kafka topics and partitions. More on that later.
 1. Add configuration settings to your ``opentsdb.conf`` file as described later on.
 1. Restart the TSD and make sure the plugin was loaded and associated with the proper ID. E.g. look in the logs for lines like:
