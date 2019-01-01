@@ -393,7 +393,7 @@ public class KafkaRpcPluginThread extends Thread {
   
   /**
    * Increments a counter for the namespace in the map.
-   * If the namespace is null or empty then we use the {@link MISSING_CLUSTER}.
+   * If the namespace is null or empty then we use the {@code MISSING_CLUSTER}.
    * If the counter hasn't been used yet, we create the mappings and store them.
    * @param type The type of counter to increment
    * @param namespace A namespace if given, null to use the MISSING_CLUSTER
@@ -404,7 +404,7 @@ public class KafkaRpcPluginThread extends Thread {
   
   /**
    * Increments a counter for the namespace in the map.
-   * If the namespace is null or empty then we use the {@link MISSING_CLUSTER}.
+   * If the namespace is null or empty then we use the {@code MISSING_CLUSTER}.
    * If the counter hasn't been used yet, we create the mappings and store them.
    * @param type The type of counter to increment
    * @param metric A namespace if given, null to use the MISSING_CLUSTER
