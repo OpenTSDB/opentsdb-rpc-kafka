@@ -1,6 +1,11 @@
 language: java
 dist: trusty
+# Skip the mvn install step
+install: true
 script: mvn cobertura:cobertura coveralls:report --quiet
+after_success:
+  - if [[ "$TRAVIS_PULL_REQUEST" = "false" ]]; then 
+    mvn deploy -q --settings settings.xml;
 addons:
   hostname: short-hostname
 jdk:
