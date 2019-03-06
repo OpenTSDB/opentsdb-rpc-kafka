@@ -187,6 +187,7 @@ public class KafkaRpcPluginThread extends Thread {
       requeue_delay = 0;
     }
     deserializer = group.getDeserializer();
+    deserializer.initialize(tsdb);
   }
 
   @Override
