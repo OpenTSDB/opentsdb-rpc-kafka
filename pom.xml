@@ -205,7 +205,7 @@
 		              <include>org.scala-lang:*</include>
 		              <include>com.yammer.metrics:*</include>
 		              <include>org.xerial.snappy:*</include>
-		              <include>et.sf.jopt-simple:*</include>
+		              <include>net.sf.jopt-simple:*</include>
 		              <include>com.101tec:*</include>
 		              <include>log4j:*</include>
 		            </includes>
