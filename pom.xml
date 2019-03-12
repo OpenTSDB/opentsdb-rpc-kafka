@@ -55,8 +55,8 @@
         
         <dependency>
           <groupId>org.apache.kafka</groupId>
-          <artifactId>kafka_2.9.2</artifactId>
-          <version>0.8.1.1</version>
+          <artifactId>kafka-clients</artifactId>
+          <version>2.1.1</version>
         </dependency>
 
         <!-- test dependencies -->
@@ -205,7 +205,6 @@
 		              <include>org.scala-lang:*</include>
 		              <include>com.yammer.metrics:*</include>
 		              <include>org.xerial.snappy:*</include>
-		              <include>net.sf.jopt-simple:*</include>
 		              <include>com.101tec:*</include>
 		              <include>log4j:*</include>
 		            </includes>

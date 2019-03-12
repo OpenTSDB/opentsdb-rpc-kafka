@@ -343,8 +343,8 @@ public class TestKafkaRpcPluginGroup {
     group.setRate(42);
     assertEquals(42, group.getRate(), 0.000);
     assertEquals(42, group.getRateLimiter().getRate(), 0.000);
-    verify(threads.get(0), never()).shutdown();
-    verify(threads.get(1), never()).shutdown();
+    verify(threads.get(0), never()).close();
+    verify(threads.get(1), never()).close();
   }
   
   @Test
@@ -355,8 +355,8 @@ public class TestKafkaRpcPluginGroup {
     // remains the default as we can't set the limiter to 0
     assertEquals(KafkaRpcPluginConfig.DEFAULT_CONSUMER_RATE, 
         group.getRateLimiter().getRate(), 0.000);
-    verify(threads.get(0), times(1)).shutdown();
-    verify(threads.get(1), times(1)).shutdown();
+    verify(threads.get(0), times(1)).close();
+    verify(threads.get(1), times(1)).close();
   }
   
   @Test

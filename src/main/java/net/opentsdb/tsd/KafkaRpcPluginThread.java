@@ -17,33 +17,24 @@ package net.opentsdb.tsd;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.AtomicDouble;
 import com.google.common.util.concurrent.RateLimiter;
-
-import joptsimple.internal.Strings;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-
-import kafka.common.ConsumerRebalanceFailedException;
-import kafka.consumer.ConsumerConfig;
-import kafka.consumer.ConsumerIterator;
-import kafka.consumer.KafkaStream;
-import kafka.consumer.TopicFilter;
-import kafka.consumer.Whitelist;
-import kafka.javaapi.consumer.ConsumerConnector;
-import kafka.message.MessageAndMetadata;
 import net.opentsdb.core.IncomingDataPoint;
 import net.opentsdb.core.TSDB;
 import net.opentsdb.data.TypedIncomingData;
 import net.opentsdb.data.deserializers.Deserializer;
 import net.opentsdb.tsd.KafkaRpcPluginGroup.TsdbConsumerType;
-
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.errors.WakeupException;
+import org.apache.kafka.common.utils.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * New and Improved Kafka to TSDB Writer! Now with TSDB Integration!
@@ -54,9 +45,8 @@ import org.slf4j.LoggerFactory;
  * the value is logged and bit-bucketed.
  */
 public class KafkaRpcPluginThread extends Thread {
-  static final String CONSUMER_ID = "consumer.id";
+  static final String CONSUMER_ID = "client.id";
   static final String GROUP_ID = "group.id";
-  static final String AGG_TAG = "_aggregate";
   static final String DEFAULT_COUNTER_ID = "null";
   private static final Logger LOG = LoggerFactory.getLogger(
       KafkaRpcPluginThread.class);
@@ -119,12 +109,13 @@ public class KafkaRpcPluginThread extends Thread {
   private final int thread_id;
   private final KafkaRpcPluginGroup group;
   private final String consumer_id;
-  private final TopicFilter topic_filter;
+  private final List<String> topics;
   private final int number_consumer_streams = 1;
   private final RateLimiter rate_limiter;
   private final TsdbConsumerType consumer_type;
   private final long requeue_delay;
   private final AtomicBoolean thread_running = new AtomicBoolean();
+  private final AtomicBoolean shouldClose = new AtomicBoolean();
   
   private final AtomicLong messagesReceived = new AtomicLong();
   private final AtomicLong datapointsReceived = new AtomicLong();
@@ -132,8 +123,8 @@ public class KafkaRpcPluginThread extends Thread {
   private final AtomicDouble cumulativeRateDelay = new AtomicDouble();
   private final AtomicDouble kafkaWaitTime = new AtomicDouble();
   private final Deserializer deserializer;
-  
-  private ConsumerConnector consumer;
+
+  private KafkaConsumer<Bytes,Bytes> consumer;
   
   /**
    * Default ctor
@@ -142,7 +133,7 @@ public class KafkaRpcPluginThread extends Thread {
    * @param topics The topic list to subscribe to
    */
   public KafkaRpcPluginThread(final KafkaRpcPluginGroup group, 
-      final int threadID, final String topics) {
+      final int threadID, final List<String> topics) {
     if (topics == null || topics.isEmpty()) {
       throw new IllegalArgumentException("Missing topics");
     }
@@ -173,7 +164,7 @@ public class KafkaRpcPluginThread extends Thread {
     this.consumer_type = group.getConsumerType();
     thread_running.set(false);
 
-    topic_filter = new Whitelist(topics);
+    this.topics = new ArrayList<String>(topics);
     consumer_id = threadID + "_" + group.getParent().getHost();
     if (consumer_type == TsdbConsumerType.REQUEUE_RAW) {
       if (group.getParent().getConfig().hasProperty(
@@ -200,10 +191,12 @@ public class KafkaRpcPluginThread extends Thread {
    * @return The consumer connector
    * @throws IllegalArgumentException if the config is invalid
    */
-  ConsumerConnector buildConsumerConnector() {
+  KafkaConsumer<Bytes,Bytes> buildConsumerConnector() {
     final Properties properties = buildConsumerProperties();
-    return kafka.consumer.Consumer
-        .createJavaConsumerConnector(new ConsumerConfig(properties));
+    final KafkaConsumer<Bytes,Bytes> consumer = new KafkaConsumer<Bytes, Bytes>(properties);
+    consumer.subscribe(topics);
+    LOG.info("Initializing consumer. consumer id: " + consumer_id + ", topics: " + topics.toString() + ", props: " + properties);
+    return consumer;
   }
 
   /**
@@ -240,8 +233,8 @@ public class KafkaRpcPluginThread extends Thread {
     // settings from other parts of our code base
     properties.put(GROUP_ID, group.getGroupID());
     properties.put(CONSUMER_ID, consumer_id);
-    LOG.info("Initializing consumer config with consumer id " + consumer_id + 
-        " and props " + properties);
+    properties.put("key.deserializer", "org.apache.kafka.common.serialization.BytesDeserializer");
+    properties.put("value.deserializer", "org.apache.kafka.common.serialization.BytesDeserializer");
     return properties;
   }
   
@@ -249,105 +242,101 @@ public class KafkaRpcPluginThread extends Thread {
   public void run() {
     thread_running.set(true);
     Thread.currentThread().setName(group.getGroupID() + "_" + consumer_id);
-    
+
     try {
       consumer = buildConsumerConnector();
-      // We're only fetching one stream at a time per thread so we only care
-      // about the first one.
-      final KafkaStream<byte[], byte[]> stream = 
-          consumer.createMessageStreamsByFilter(topic_filter, 
-              number_consumer_streams).get(0);
 
-      final ConsumerIterator<byte[], byte[]> it = stream.iterator();
       int errorCount = 0;
       long nanoCtr = System.nanoTime();
-      while (it.hasNext()) {
-        try {
-          // The following line will block until a message has been read from
-          // the stream.
-          final MessageAndMetadata<byte[], byte[]> message = it.next();
-          long delay = System.nanoTime() - nanoCtr;
-          if (nanoCtr > 0) {
-            kafkaWaitTime.addAndGet(((double) delay / (double)1000000));
-          }
-          messagesReceived.incrementAndGet();
-          
-          // Now that we have received the message, we should record the present
-          // system time.
-          final long recvTime = System.currentTimeMillis();
-          
-          switch (consumer_type) {
-          case RAW:
-          case ROLLUP:
-            // Deserialize the event from the received (opaque) message.
-            final List<TypedIncomingData> eventList = 
-              deserializer.deserialize(this, message.message());
-            if (eventList == null) {
-              deserializationErrors.incrementAndGet();
-              continue;
-            }
-            
-            // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
-            final double waiting = rate_limiter.acquire();
-            cumulativeRateDelay.addAndGet(waiting);
-            datapointsReceived.addAndGet(eventList.size());
-            for (TypedIncomingData ev : eventList) {
-              ev.processData(this, recvTime);
-            }
-            break;
-          case REQUEUE_RAW:
-          case REQUEUE_ROLLUP:
-          case UID_ABUSE:
-            final List<TypedIncomingData> requeuedList = 
-              deserializer.deserialize(this, message.message());
-            if (requeuedList == null) {
-              deserializationErrors.incrementAndGet();
-              continue;
-            }
-            
-            // to avoid tight requeue loops we want to sleep a spell
-            // if we receive a data point that was recently added
-            // to the queue
-            datapointsReceived.addAndGet(requeuedList.size());
-            for(TypedIncomingData ev : requeuedList) {
-              final long requeueDiff = System.currentTimeMillis() - ev.getRequeueTS();
-              if (requeueDiff < requeue_delay) {
-                if (LOG.isDebugEnabled()) {
-                  LOG.debug("Sleeping for "  + (requeue_delay - requeueDiff)
-                          + " ms due to requeue delay");
-                }
-                //incrementCounter(CounterType.RequeuesDelayed, ns);
-                Thread.sleep(requeue_delay - requeueDiff);
-              }
-
-              // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
-              final double w = rate_limiter.acquire();
-              cumulativeRateDelay.addAndGet(w);
-              ev.processData(this, recvTime);
-            }
-            break;
-          default:
-              throw new IllegalStateException("Unknown consumer type: " + 
-                  consumer_type + " for " + this);
-          }
-          errorCount = 0;
-        } catch (RuntimeException e) {
-          LOG.error("Exception in kafkaReader or Tsdb Writer ", e);
-          incrementNamespaceCounter(CounterType.Exception, null);
-          errorCount++;
-          if (errorCount >= 5) {
-            LOG.error("Too many errors, Killing the consumer thread " + this);
-            throw e;
-          }
+      while (!shouldClose.get()) {
+        ConsumerRecords<Bytes, Bytes> records = consumer.poll(Long.MAX_VALUE);
+        if(records == null) {
+          break;
         }
-        nanoCtr = System.nanoTime();
+
+        for (ConsumerRecord<Bytes, Bytes> record : records) {
+          try {
+            long delay = System.nanoTime() - nanoCtr;
+            if (nanoCtr > 0) {
+              kafkaWaitTime.addAndGet(((double) delay / (double) 1000000));
+            }
+            messagesReceived.incrementAndGet();
+
+            // Now that we have received the message, we should record the present
+            // system time.
+            final long recvTime = System.currentTimeMillis();
+
+            switch (consumer_type) {
+              case RAW:
+              case ROLLUP:
+                // Deserialize the event from the received (opaque) message.
+                final List<TypedIncomingData> eventList =
+                  deserializer.deserialize(this, record.value().get());
+                if (eventList == null) {
+                  deserializationErrors.incrementAndGet();
+                  continue;
+                }
+
+                // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
+                final double waiting = rate_limiter.acquire();
+                cumulativeRateDelay.addAndGet(waiting);
+                datapointsReceived.addAndGet(eventList.size());
+                for (TypedIncomingData ev : eventList) {
+                  ev.processData(this, recvTime);
+                }
+                break;
+              case REQUEUE_RAW:
+              case REQUEUE_ROLLUP:
+              case UID_ABUSE:
+                final List<TypedIncomingData> requeuedList =
+                  deserializer.deserialize(this, record.value().get());
+                if (requeuedList == null) {
+                  deserializationErrors.incrementAndGet();
+                  continue;
+                }
+
+                // to avoid tight requeue loops we want to sleep a spell
+                // if we receive a data point that was recently added
+                // to the queue
+                datapointsReceived.addAndGet(requeuedList.size());
+                for (TypedIncomingData ev : requeuedList) {
+                  final long requeueDiff = System.currentTimeMillis() - ev.getRequeueTS();
+                  if (requeueDiff < requeue_delay) {
+                    if (LOG.isDebugEnabled()) {
+                      LOG.debug("Sleeping for " + (requeue_delay - requeueDiff)
+                        + " ms due to requeue delay");
+                    }
+                    //incrementCounter(CounterType.RequeuesDelayed, ns);
+                    Thread.sleep(requeue_delay - requeueDiff);
+                  }
+
+                  // I &#9825 Google! It's so easy! No release necessary! Thread Safe!
+                  final double w = rate_limiter.acquire();
+                  cumulativeRateDelay.addAndGet(w);
+                  ev.processData(this, recvTime);
+                }
+                break;
+              default:
+                throw new IllegalStateException("Unknown consumer type: " +
+                  consumer_type + " for " + this);
+            }
+            errorCount = 0;
+          } catch (RuntimeException e) {
+            LOG.error("Exception in kafkaReader or Tsdb Writer ", e);
+            incrementNamespaceCounter(CounterType.Exception, null);
+            errorCount++;
+            if (errorCount >= 5) {
+              LOG.error("Too many errors, Killing the consumer thread " + this);
+              throw e;
+            }
+          }
+          nanoCtr = System.nanoTime();
+        }
+        consumer.commitSync();
       }
-      
-      LOG.warn("Consumer thread [" + this + "] has run out of messages");
-    } catch (ConsumerRebalanceFailedException crfex) {
-      LOG.error("Failed to read Kafka partition from the consumer "
-          + "thread " + this, crfex);
-      group.incrementRebalanceFailures();
+    } catch(WakeupException e) {
+      if(!shouldClose.get())
+        LOG.error("Kafka thread "+this+" got wakeup event without shouldClose set; this is a bug");
     } catch (Exception e) {
       LOG.error("Unexpected exception in Kafka thread: " + this, e);
       //incrementCounter(CounterType.DroppedException, null);
@@ -364,17 +353,19 @@ public class KafkaRpcPluginThread extends Thread {
     }
     thread_running.set(false);
   }
-  
+
   /**
-   * Attempts to gracefully shutdown the thread, closing the consumer and waiting
-   * for the inflight RPCs to complete.
+   * Closes the Kafka connection.
+   *
+   * Not thread safe; should only be called at the end of run
    */
-  public void shutdown() {
+  @VisibleForTesting
+  void shutdown() {
     LOG.info("Shutting down thread [" + this + "]");
     try {
       if (consumer != null) {
-        consumer.shutdown();
-        consumer = null;
+        consumer.close();
+        // Note: can't set consumer = null here, as it may race with `close` calling `wakeup`.
         LOG.info("Shutdown the kafka consumer on thread [" + this + "]");
       }
     } catch (Exception e) {
@@ -390,6 +381,21 @@ public class KafkaRpcPluginThread extends Thread {
       LOG.error("Fatal exception in Kafka thread: " + this, e);
       System.exit(1);
     }
+  }
+
+  /**
+   * Tells the kafka thread to gracefully shut down, blocking until it does.
+   */
+  public void close() throws InterruptedException {
+    this.close(true);
+  }
+
+  public void close(boolean block) throws InterruptedException {
+    shouldClose.set(true);
+    if(consumer != null)
+      consumer.wakeup();
+    if(block)
+      this.join();
   }
   
   /**
@@ -475,7 +481,7 @@ public class KafkaRpcPluginThread extends Thread {
   }
   
   @VisibleForTesting
-  ConsumerConnector consumer() {
+  KafkaConsumer<Bytes, Bytes> consumer() {
     return consumer;
   }
   
@@ -506,7 +512,7 @@ public class KafkaRpcPluginThread extends Thread {
   }
   
   String getPrefix(final String metric) {
-    if (Strings.isNullOrEmpty(metric)) {
+    if (metric == null || "".equals(metric)) {
       return DEFAULT_COUNTER_ID;
     }
     
