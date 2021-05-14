@@ -14,39 +14,9 @@
 // limitations under the License.
 package net.opentsdb.tsd;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyLong;
-import static org.mockito.Matchers.anyMap;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.powermock.api.mockito.PowerMockito.mock;
-import static org.powermock.api.mockito.PowerMockito.mockStatic;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
-
-import kafka.consumer.Consumer;
-import kafka.consumer.ConsumerConfig;
-import kafka.consumer.ConsumerIterator;
-import kafka.consumer.KafkaStream;
-import kafka.consumer.TopicFilter;
-import kafka.javaapi.consumer.ConsumerConnector;
-import kafka.message.MessageAndMetadata;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.RateLimiter;
+import com.stumbleupon.async.Deferred;
 import net.opentsdb.core.HistogramCodecManager;
 import net.opentsdb.core.IncomingDataPoint;
 import net.opentsdb.core.TSDB;
@@ -59,7 +29,11 @@ import net.opentsdb.data.deserializers.JSONDeserializer;
 import net.opentsdb.tsd.KafkaRpcPluginGroup.TsdbConsumerType;
 import net.opentsdb.utils.Config;
 import net.opentsdb.utils.JSON;
-
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.utils.Bytes;
 import org.hbase.async.HBaseException;
 import org.hbase.async.PleaseThrottleException;
 import org.junit.Before;
@@ -71,22 +45,34 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.util.concurrent.RateLimiter;
-import com.stumbleupon.async.Deferred;
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.junit.Assert.*;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyBoolean;
+import static org.mockito.Matchers.anyLong;
+import static org.mockito.Matchers.anyMap;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.*;
+import static org.powermock.api.mockito.PowerMockito.mock;
 
 @PowerMockIgnore({ "javax.management.*" })
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({ TSDB.class, KafkaRpcPluginThread.class, Config.class,
   Thread.class,
- Consumer.class, ConsumerConfig.class, PleaseThrottleException.class})
+ KafkaConsumer.class, ConsumerConfig.class, PleaseThrottleException.class})
 public class TestKafkaRpcPluginThread {
   private static final String METRIC = "sys.cpu.user";
   private static final String METRIC2 = "sys.cpu.iowait";
   private static final String PREFIX = "sys";
   private static final long TS = 1492641000L;
   private static final String LOCALHOST = "localhost";
-  private static final String TOPICS = "TSDB_600_1,TSDB_600_2,TSDB_600_3";
+  private static final List<String> TOPICS = Arrays.asList("TSDB_600_1","TSDB_600_2","TSDB_600_3");
   private static final String GROUPID = "testGroup";
   private static final String ZKS = "192.168.1.1:2181";
   private Map<String, String> TAGS = ImmutableMap.<String, String>builder()
@@ -96,10 +82,9 @@ public class TestKafkaRpcPluginThread {
   private TSDB tsdb;
   private KafkaRpcPluginConfig config;
   private KafkaRpcPluginGroup group;
-  private ConsumerConnector consumer_connector;
-  private ConsumerIterator<byte[], byte[]> iterator;
-  private List<KafkaStream<byte[], byte[]>> stream_list;
-  private MessageAndMetadata<byte[], byte[]> message;
+  private KafkaConsumer<Bytes,Bytes> consumer;
+  private ConsumerRecords<Bytes,Bytes> consumerRecords;
+  private ConsumerRecord<Bytes,Bytes> consumerRecord;
   private RateLimiter rate_limiter;
   private TypedIncomingData data;
   private KafkaRpcPlugin parent;
@@ -113,17 +98,14 @@ public class TestKafkaRpcPluginThread {
     tsdb = PowerMockito.mock(TSDB.class);
     config = new KafkaRpcPluginConfig(new Config(false));
     group = mock(KafkaRpcPluginGroup.class);
-    message = mock(MessageAndMetadata.class);
     rate_limiter = mock(RateLimiter.class);
     requeue = mock(KafkaStorageExceptionHandler.class);
     counters = new ConcurrentHashMap<String, Map<String, AtomicLong>>();
     deserializer = new JSONDeserializer();
-    
-    consumer_connector = mock(ConsumerConnector.class);
 
-    mockStatic(Consumer.class);
-    when(Consumer.createJavaConsumerConnector((ConsumerConfig) any()))
-            .thenReturn(consumer_connector);
+    consumer = mock(KafkaConsumer.class);
+    consumerRecords = mock(ConsumerRecords.class);
+    consumerRecord = mock(ConsumerRecord.class);
     
     when(tsdb.getConfig()).thenReturn(config);
     when(tsdb.getStorageExceptionHandler()).thenReturn(requeue);
@@ -140,30 +122,18 @@ public class TestKafkaRpcPluginThread {
     when(group.getGroupID()).thenReturn(GROUPID);
     when(group.getConsumerType()).thenReturn(TsdbConsumerType.RAW);
     when(group.getDeserializer()).thenReturn(deserializer);
-    
+
     config.overrideConfig(KafkaRpcPluginConfig.KAFKA_CONFIG_PREFIX 
         + "zookeeper.connect", ZKS);
-    
-    stream_list = mock(List.class);
-    when(consumer_connector.createMessageStreamsByFilter(
-        (TopicFilter) any(), anyInt())).thenReturn(stream_list);
 
-    final KafkaStream<byte[], byte[]> stream = mock(KafkaStream.class);
-    when(stream_list.get(0)).thenReturn(stream);
-
-    iterator = mock(ConsumerIterator.class);
-    when(stream.iterator()).thenReturn(iterator);
-
-    when(iterator.hasNext()).thenReturn(true).thenReturn(false);
-    when(iterator.next()).thenReturn(message);
-    
-    PowerMockito.mockStatic(ConsumerConfig.class);
-    PowerMockito.whenNew(ConsumerConfig.class).withAnyArguments()
-      .thenReturn(mock(ConsumerConfig.class));
-    
-    PowerMockito.mockStatic(Consumer.class);
-    when(Consumer.createJavaConsumerConnector(any(ConsumerConfig.class)))
-      .thenReturn(consumer_connector);
+    PowerMockito.mockStatic(KafkaConsumer.class);
+    PowerMockito.whenNew(KafkaConsumer.class).withAnyArguments()
+      .thenReturn(consumer);
+    when(consumer.poll(anyLong()))
+      .thenReturn(consumerRecords)
+      .thenReturn(null);
+    when(consumerRecords.iterator())
+      .thenReturn(Collections.singletonList(consumerRecord).iterator());
   }
 
   @Test
@@ -224,7 +194,7 @@ public class TestKafkaRpcPluginThread {
   
   @Test(expected = IllegalArgumentException.class)
   public void ctorEmptyTopics() throws Exception {
-    new KafkaRpcPluginThread(group, 1, "");
+    new KafkaRpcPluginThread(group, 1, Collections.<String>emptyList());
   }
   
   @Test(expected = IllegalArgumentException.class)
@@ -281,15 +251,6 @@ public class TestKafkaRpcPluginThread {
     assertEquals(
         Integer.toString(KafkaRpcPluginConfig.REBALANCE_BACKOFF_MS_DEFAULT),
         props.get(KafkaRpcPluginConfig.REBALANCE_BACKOFF_MS));
-    assertEquals(
-        Integer.toString(KafkaRpcPluginConfig.REBALANCE_RETRIES_DEFAULT),
-        props.get(KafkaRpcPluginConfig.REBALANCE_RETRIES));
-    assertEquals(
-        Integer.toString(KafkaRpcPluginConfig.ZK_SESSION_TIMEOUT_DEFAULT),
-        props.get(KafkaRpcPluginConfig.ZOOKEEPER_SESSION_TIMEOUT_MS));
-    assertEquals(
-        Integer.toString(KafkaRpcPluginConfig.ZK_CONNECTION_TIMEOUT_DEFAULT),
-        props.get(KafkaRpcPluginConfig.ZOOKEEPER_CONNECTION_TIMEOUT_MS));
     assertEquals(ZKS, props.get("zookeeper.connect"));
   }
   
@@ -316,15 +277,6 @@ public class TestKafkaRpcPluginThread {
     assertEquals(
         Integer.toString(KafkaRpcPluginConfig.REBALANCE_BACKOFF_MS_DEFAULT),
         props.get(KafkaRpcPluginConfig.REBALANCE_BACKOFF_MS));
-    assertEquals(
-        Integer.toString(KafkaRpcPluginConfig.REBALANCE_RETRIES_DEFAULT),
-        props.get(KafkaRpcPluginConfig.REBALANCE_RETRIES));
-    assertEquals(
-        Integer.toString(KafkaRpcPluginConfig.ZK_SESSION_TIMEOUT_DEFAULT),
-        props.get(KafkaRpcPluginConfig.ZOOKEEPER_SESSION_TIMEOUT_MS));
-    assertEquals(
-        Integer.toString(KafkaRpcPluginConfig.ZK_CONNECTION_TIMEOUT_DEFAULT),
-        props.get(KafkaRpcPluginConfig.ZOOKEEPER_CONNECTION_TIMEOUT_MS));
     assertEquals("10.0.0.1:2181", props.get("zookeeper.connect"));
   }
     
@@ -340,31 +292,13 @@ public class TestKafkaRpcPluginThread {
     final KafkaRpcPluginThread writer = 
         new KafkaRpcPluginThread(group, 1, TOPICS);
     writer.run();
-    writer.shutdown();
-    verify(consumer_connector, times(1)).shutdown();
+    writer.close();
+    verify(consumer, times(1)).close();
   }
-    
-  @Test
-  public void runNoData() throws Exception {
-    when(iterator.hasNext()).thenReturn(false);
 
-    final KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-    verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
-    verify(consumer_connector, times(1))
-      .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
-    verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
-  }
-  
   @Test
   public void runNoDataRestart() throws Exception {
-    when(iterator.hasNext()).thenReturn(false);
+    when(consumer.poll(anyLong())).thenReturn(null);
 
     final KafkaRpcPluginThread writer = Mockito.spy(
         new KafkaRpcPluginThread(group, 1, TOPICS));
@@ -375,29 +309,8 @@ public class TestKafkaRpcPluginThread {
         any(byte[].class), anyMap());
     verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
         anyMap(), anyBoolean(), anyString(), anyString(), anyString());
-    verify(consumer_connector, times(2))
-      .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
     verify(writer, times(2)).shutdown();
-    verify(consumer_connector, times(2)).shutdown();
-  }
-
-  @Test
-  public void runNoStreams() throws Exception {
-    when(stream_list.get(0))
-            .thenThrow(new ArrayIndexOutOfBoundsException());
-
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-    verify(tsdb, never()).addPoint(anyString(), anyLong(), anyLong(), anyMap());
-    verify(tsdb, never()).addHistogramPoint(anyString(), anyLong(), 
-        any(byte[].class), anyMap());
-    verify(tsdb, never()).addAggregatePoint(anyString(), anyLong(), anyLong(), 
-        anyMap(), anyBoolean(), anyString(), anyString(), anyString());
-    verify(consumer_connector, times(1))
-      .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
-    verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
+    verify(consumer, times(2)).close();
   }
 
   @Test
@@ -541,7 +454,7 @@ public class TestKafkaRpcPluginThread {
 
   @Test
   public void runEmptyData() throws Exception {
-    when(message.message()).thenReturn(new byte[] { '{', '}' });
+    when(consumerRecord.value()).thenReturn(new Bytes(new byte[] { '{', '}' }));
     KafkaRpcPluginThread writer = Mockito.spy(
         new KafkaRpcPluginThread(group, 1, TOPICS));
     writer.run();
@@ -559,7 +472,7 @@ public class TestKafkaRpcPluginThread {
     when(tsdb.addPoint(anyString(), anyLong(), anyLong(), anyMap()))
       .thenReturn(Deferred.fromResult(null));
     data = new Metric(null, TS, "42", TAGS);
-    when(message.message()).thenReturn(JSON.serializeToBytes(data));
+    when(consumerRecord.value()).thenReturn(new Bytes(JSON.serializeToBytes(data)));
     KafkaRpcPluginThread writer = Mockito.spy(
         new KafkaRpcPluginThread(group, 1, TOPICS));
 
@@ -674,80 +587,23 @@ public class TestKafkaRpcPluginThread {
   
   @Test
   public void runTooManyRuntimeException() throws Exception {
-    when(iterator.hasNext()).thenReturn(true);
-    when(iterator.next()).thenThrow(new RuntimeException("Foobar"));
+    when(consumerRecords.iterator()).thenThrow(new RuntimeException("Foobar"));
     KafkaRpcPluginThread writer = Mockito.spy(
         new KafkaRpcPluginThread(group, 1, TOPICS));
     writer.run();
     
     verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
-  }
-
-  @Test
-  public void runIteratorHasNextRuntimeException() throws Exception {
-    when(iterator.hasNext()).thenThrow(new RuntimeException("Foobar"));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-    
-    verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
+    verify(consumer, times(1)).close();
   }
 
   @Test(expected = Exception.class)
-  public void runIteratorHasNextException() throws Exception {
-    when(iterator.hasNext()).thenThrow(new Exception("Foobar"));
+  public void consumerRecordsHasException() throws Exception {
+    when(consumerRecords.iterator()).thenThrow(new Exception("Foobar"));
     KafkaRpcPluginThread writer = Mockito.spy(
         new KafkaRpcPluginThread(group, 1, TOPICS));
     writer.run();
   }
 
-  @Test
-  public void runIteratorNextRuntimeException() throws Exception {
-    when(iterator.next()).thenThrow(new RuntimeException("Foobar"));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-    
-    verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
-  }
-
-  @Test(expected = Exception.class)
-  public void runIteratorNextException() throws Exception {
-    when(iterator.next()).thenThrow(new Exception("Foobar"));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-  }
-
-  @Test
-  public void runConsumerRuntimeException() throws Exception {
-    when(consumer_connector.createMessageStreamsByFilter(
-        (TopicFilter) any(), anyInt())).thenThrow(
-            new RuntimeException("Foobar"));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-    
-    verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
-  }
-
-  @Test(expected = Exception.class)
-  public void runConsumerException() throws Exception {
-    when(consumer_connector.createMessageStreamsByFilter(
-        (TopicFilter) any(), anyInt())).thenThrow(
-            new Exception("Foobar"));
-    KafkaRpcPluginThread writer = Mockito.spy(
-        new KafkaRpcPluginThread(group, 1, TOPICS));
-    writer.run();
-    
-    verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
-  }
-  
   // ------ HELPERS ---------
   
   private void setupRawData(final boolean requeued) {
@@ -757,7 +613,7 @@ public class TestKafkaRpcPluginThread {
     if (requeued) {
       data.setRequeueTS(TS + 60);
     }
-    when(message.message()).thenReturn(JSON.serializeToBytes(data));
+    when(consumerRecord.value()).thenReturn(new Bytes(JSON.serializeToBytes(data)));
   }
 
   private void setupRawDataList(final boolean requeued) {
@@ -779,7 +635,7 @@ public class TestKafkaRpcPluginThread {
     sb.append(new String(JSON.serializeToBytes(ev2)));
     sb.append("]");
 
-    when(message.message()).thenReturn(sb.toString().getBytes());
+    when(consumerRecord.value()).thenReturn(new Bytes(sb.toString().getBytes()));
   }
 
   private void setupAggData(final boolean requeued, final boolean is_group_by) {
@@ -794,7 +650,7 @@ public class TestKafkaRpcPluginThread {
     if (requeued) {
       data.setRequeueTS(TS + 60);
     }
-    when(message.message()).thenReturn(JSON.serializeToBytes(data));
+    when(consumerRecord.value()).thenReturn(new Bytes(JSON.serializeToBytes(data)));
   }
 
   private void setupHistogramData(final boolean requeued) {
@@ -819,7 +675,7 @@ public class TestKafkaRpcPluginThread {
     if (requeued) {
       data.setRequeueTS(TS + 60);
     }
-    when(message.message()).thenReturn(JSON.serializeToBytes(data));
+    when(consumerRecord.value()).thenReturn(new Bytes(JSON.serializeToBytes(data)));
   }
 
   /**
@@ -908,10 +764,7 @@ public class TestKafkaRpcPluginThread {
   private void verifyMessageRead(final KafkaRpcPluginThread writer,
                                  final boolean requeued) {
     verify(writer, times(1)).shutdown();
-    verify(consumer_connector, times(1)).shutdown();
-    verify(consumer_connector, times(1))
-      .createMessageStreamsByFilter(any(TopicFilter.class), anyInt());
-    verify(iterator, times(2)).hasNext();
+    verify(consumer, times(1)).close();
     if (requeued) {
       verify(requeue, times(1)).handleError( 
           any(IncomingDataPoint.class), any(Exception.class));

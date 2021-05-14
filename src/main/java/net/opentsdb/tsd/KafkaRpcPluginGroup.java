@@ -15,10 +15,7 @@
 package net.opentsdb.tsd;
 
 import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -32,7 +29,6 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.util.concurrent.RateLimiter;
 
-import joptsimple.internal.Strings;
 import net.opentsdb.data.deserializers.Deserializer;
 import net.opentsdb.utils.PluginLoader;
 
@@ -133,7 +129,7 @@ public class KafkaRpcPluginGroup implements TimerTask {
     
     final String deser_class = config.getString(
         KafkaRpcPluginConfig.PLUGIN_PROPERTY_BASE + groupID + ".deserializer");
-    if (Strings.isNullOrEmpty(deser_class)) {
+    if (deser_class == null || deser_class.isEmpty()) {
       throw new IllegalArgumentException("Deserializer class cannot be null or empty.");
     }
     
@@ -177,7 +173,7 @@ public class KafkaRpcPluginGroup implements TimerTask {
     }
 
     for (int i = 0; i < num_threads; i++) {
-      kafka_consumers.add(new KafkaRpcPluginThread(this, i, topics));
+      kafka_consumers.add(new KafkaRpcPluginThread(this, i, Arrays.asList(topics.split(","))));
     }
 
     timer.newTimeout(this, config.threadCheckInterval(), TimeUnit.MILLISECONDS);
@@ -213,7 +209,11 @@ public class KafkaRpcPluginGroup implements TimerTask {
   /** Gracefully shuts down all of the consumer threads */
   public void shutdown() {
     for (final KafkaRpcPluginThread consumer : kafka_consumers) {
-      consumer.shutdown();
+      try {
+        consumer.close();
+      } catch (InterruptedException e) {
+        LOG.error("Unexpected interruptedexception while closing consumer "+consumer);
+      }
     }
   }
   
@@ -363,7 +363,7 @@ public class KafkaRpcPluginGroup implements TimerTask {
       LOG.info("The rate has been set to zero for " + this + ". Killing threads.");
       for (final KafkaRpcPluginThread writer : kafka_consumers) {
         try {
-        writer.shutdown();
+          writer.close();
         } catch (Exception e) {
           LOG.error("Exception shutting down thread " + writer, e);
         }

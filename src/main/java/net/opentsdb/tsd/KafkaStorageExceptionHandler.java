@@ -20,6 +20,9 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.utils.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,9 +30,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 import com.stumbleupon.async.Deferred;
 
-import kafka.javaapi.producer.Producer;
-import kafka.producer.KeyedMessage;
-import kafka.producer.ProducerConfig;
 import net.opentsdb.core.IncomingDataPoint;
 import net.opentsdb.core.TSDB;
 import net.opentsdb.data.Aggregate;
@@ -66,10 +66,10 @@ public class KafkaStorageExceptionHandler extends StorageExceptionHandler {
   private KafkaRpcPluginConfig config;
   
   /** A Kafka producer configuration object */
-  private ProducerConfig producer_config;
+  private Properties producer_config;
   
   /** A Kafka producer */
-  private Producer<String, byte[]> producer;
+  private KafkaProducer<String, Bytes> producer;
   
   /**
    * Default ctor
@@ -139,8 +139,11 @@ public class KafkaStorageExceptionHandler extends StorageExceptionHandler {
             entry.getValue());
       }
     }
+
+    properties.setProperty("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+    properties.setProperty("value.serializer", "org.apache.kafka.common.serialization.BytesSerializer");
     
-    producer_config = new ProducerConfig(properties);
+    producer_config = properties;
   }
   
   @Override
@@ -149,7 +152,7 @@ public class KafkaStorageExceptionHandler extends StorageExceptionHandler {
     config = new KafkaRpcPluginConfig(tsdb.getConfig());
 
     setKafkaConfig();
-    producer = new Producer<String, byte[]>(producer_config);
+    producer = new KafkaProducer<String, Bytes>(producer_config);
     LOG.info("Initialized kafka requeue publisher.");
   }
 
@@ -204,10 +207,11 @@ public class KafkaStorageExceptionHandler extends StorageExceptionHandler {
       }
       
       int hash = dp.getMetric().hashCode() + Objects.hashCode(dp.getTags());
-      final KeyedMessage<String, byte[]> data = 
-          new KeyedMessage<String, byte[]>(topic, 
-              Integer.toString(Math.abs(hash)),
-              JSON.serializeToBytes(dp));
+      final ProducerRecord<String, Bytes> data = new ProducerRecord<String, Bytes>(
+        topic,
+        Integer.toString(Math.abs(hash)),
+        new Bytes(JSON.serializeToBytes(dp))
+      );
       producer.send(data);
       
       final AtomicLong requeued = topic_requeued_counters.get(type);

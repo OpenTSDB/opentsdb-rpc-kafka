@@ -14,9 +14,9 @@
 // limitations under the License.
 package net.opentsdb.tsd;
 
-import java.util.Map;
-
 import net.opentsdb.utils.Config;
+
+import java.util.Map;
 
 /**
  * The configuration class for the Kafka Consumer
@@ -37,23 +37,15 @@ public class KafkaRpcPluginConfig extends Config {
   // KAFKA
   public static final String AUTO_COMMIT_INTERVAL_MS = 
       "auto.commit.interval.ms";
-  public static final String AUTO_COMMIT_ENABLE = "auto.commit.enable";
+  public static final String AUTO_COMMIT_ENABLE = "enable.auto.commit";
   public static final String AUTO_OFFSET_RESET = "auto.offset.reset";
-  public static final String REBALANCE_BACKOFF_MS = "rebalance.backoff.ms";
-  public static final String REBALANCE_RETRIES = "rebalance.retries.max";
-  public static final String ZOOKEEPER_CONNECTION_TIMEOUT_MS =
-      "zookeeper.connection.timeout.ms";
-  public static final String ZOOKEEPER_SESSION_TIMEOUT_MS = 
-      "zookeeper.session.timeout.ms";
+  public static final String REBALANCE_BACKOFF_MS = "rebalance.timeout.ms";
   
   // KAFKA DEFAULTS
   public static final int AUTO_COMMIT_INTERVAL_DEFAULT = 5000;
-  public static final String AUTO_COMMIT_ENABLE_DEFAULT = "true";
-  public static final String AUTO_OFFSET_RESET_DEFAULT = "smallest";
+  public static final String AUTO_COMMIT_ENABLE_DEFAULT = "false";
+  public static final String AUTO_OFFSET_RESET_DEFAULT = "latest";
   public static final int REBALANCE_BACKOFF_MS_DEFAULT = 60000;
-  public static final int REBALANCE_RETRIES_DEFAULT = 20;
-  public static final int ZK_CONNECTION_TIMEOUT_DEFAULT = 60000;
-  public static final int ZK_SESSION_TIMEOUT_DEFAULT = 60000;
   
   // Producer defaults for the requeue
   public static final String REQUEUE_CONFIG_PREFIX = PLUGIN_PROPERTY_BASE + "seh";
@@ -61,19 +53,13 @@ public class KafkaRpcPluginConfig extends Config {
   
   // Kafka pass through values
   public static final String KAFKA_BROKERS = KAFKA_CONFIG_PREFIX + 
-      "metadata.broker.list";
+      "bootstrap.servers";
   public static final String REQUIRED_ACKS = KAFKA_CONFIG_PREFIX + 
-      "request.required.acks";
+      "acks";
   public static final String REQUEST_TIMEOUT = KAFKA_CONFIG_PREFIX + 
       "request.timeout.ms";
   public static final String MAX_RETRIES = KAFKA_CONFIG_PREFIX + 
-      "send.max_retries";
-  public static final String PARTITIONER_CLASS = KAFKA_CONFIG_PREFIX + 
-      "partitioner.class";
-  public static final String PRODUCER_TYPE = KAFKA_CONFIG_PREFIX + 
-      "producer.type";
-  public static final String KEY_SERIALIZER = KAFKA_CONFIG_PREFIX + 
-      "key.serializer.class";
+      "retries";
   
   /**
    * Default ctor
@@ -104,22 +90,12 @@ public class KafkaRpcPluginConfig extends Config {
         AUTO_OFFSET_RESET_DEFAULT);
     default_map.put(KAFKA_CONFIG_PREFIX + REBALANCE_BACKOFF_MS, 
         Integer.toString(REBALANCE_BACKOFF_MS_DEFAULT));
-    default_map.put(KAFKA_CONFIG_PREFIX + REBALANCE_RETRIES, 
-        Integer.toString(REBALANCE_RETRIES_DEFAULT));
-    default_map.put(KAFKA_CONFIG_PREFIX + ZOOKEEPER_SESSION_TIMEOUT_MS, 
-        Integer.toString(ZK_SESSION_TIMEOUT_DEFAULT));
-    default_map.put(KAFKA_CONFIG_PREFIX + ZOOKEEPER_CONNECTION_TIMEOUT_MS, 
-        Integer.toString(ZK_CONNECTION_TIMEOUT_DEFAULT));
     default_map.put(METRIC_AGG_FREQUENCY, 
         Integer.toString(DEFAULT_METRIC_AGG_FREQUENCY));
     
     default_map.put(REQUIRED_ACKS,  "0");
     default_map.put(REQUEST_TIMEOUT, "10000");
     default_map.put(MAX_RETRIES, "1000");
-    default_map.put(PRODUCER_TYPE, "async");
-    default_map.put(KEY_SERIALIZER, "kafka.serializer.StringEncoder");
-    default_map.put(PARTITIONER_CLASS, 
-        "net.opentsdb.tsd.KafkaSimplePartitioner");
     
     for (Map.Entry<String, String> entry : default_map.entrySet()) {
       if (!hasProperty(entry.getKey())) {
