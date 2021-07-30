@@ -39,13 +39,7 @@
         <archive>https://groups.google.com/group/opentsdb</archive>
      </mailingList>
     </mailingLists>
-    
-    <parent>
-      <groupId>org.sonatype.oss</groupId>
-      <artifactId>oss-parent</artifactId>
-      <version>9</version>
-    </parent>
-	
+
     <dependencies>
         <dependency>
           <groupId>net.opentsdb</groupId>
@@ -184,6 +178,14 @@
           <repoToken>${repoToken}</repoToken>
         </configuration>
       </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+                <source>6</source>
+                <target>6</target>
+            </configuration>
+        </plugin>
     </plugins>
   </build>
   
