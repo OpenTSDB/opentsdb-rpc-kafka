@@ -88,3 +88,18 @@ The following properties can be stored in the ``opentsdb.conf`` file:
 |KafkaRpcPlugin.seh.topic.default|String|Optional|The topic used to write messages to for the storage exception handler.||TSDB_Requeue|
 
 Note the ``KafkaRpcPlugin.groups`` and ``<GROUP_NAME>`` entries above. Kafka consumers belong to a particular group. The Kafka RPC plugin can launch multiple groups consuming from multiple topics so that OpenTSDB messages can be organized by type or source for more efficient control over rate limits and priorities. When setting the ``KafkaRpcPlugin.groups`` value, make sure you have a complete set of ``KafkaRpcPlugin.<GROUP_NAME>.*`` parameters per group or initialization will fail.
+
+## Testing
+
+To generate some test data, you can run the `KafkaDummyDataGenerator` method 
+passing in a config via `--config=dummy.conf`. It will write 5 metrics with 5 
+different hostnames every minute by default. And example config to tell it to
+write to Kafka every 15 seconds is:
+
+```
+kafka.dummyProducer.topic=test
+kafka.dummyProducer.kafka.metadata.broker.list=localhost:9092
+kafka.dummyProducer.frequency=15s
+```
+
+Data is written in a format for the `JSONDeserializer` to parse.
